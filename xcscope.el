@@ -18,6 +18,12 @@
 ; Fuzzy matching and navigation code (C) Copyright 2001,
 ;         Steven Elliott <selliott4@austin.rr.com>
 ;
+; Hard prefix added by Väinö Järvelä <vaino@jarve.la> 2013
+; Used for tramp mode cscope but with the indexer run at server side,
+; thus the path is wrong as the database points to a local path.
+;
+; Also patched for basic tramp support.
+;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ALPHA VERSION 0.96
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -102,17 +108,17 @@
 ;;    that specifying "global-map" instead of "cscope:map" makes the
 ;;    keybindings available in all buffers:
 ;;
-;;      (define-key global-map [(control f3)]  'cscope-set-initial-directory)
-;;      (define-key global-map [(control f4)]  'cscope-unset-initial-directory)
-;;      (define-key global-map [(control f5)]  'cscope-find-this-symbol)
-;;      (define-key global-map [(control f6)]  'cscope-find-global-definition)
-;;      (define-key global-map [(control f7)]
+;;	(define-key global-map [(control f3)]  'cscope-set-initial-directory)
+;;	(define-key global-map [(control f4)]  'cscope-unset-initial-directory)
+;;	(define-key global-map [(control f5)]  'cscope-find-this-symbol)
+;;	(define-key global-map [(control f6)]  'cscope-find-global-definition)
+;;	(define-key global-map [(control f7)]
 ;;        'cscope-find-global-definition-no-prompting)
-;;      (define-key global-map [(control f8)]  'cscope-pop-mark)
-;;      (define-key global-map [(control f9)]  'cscope-next-symbol)
-;;      (define-key global-map [(control f10)] 'cscope-next-file)
-;;      (define-key global-map [(control f11)] 'cscope-prev-symbol)
-;;      (define-key global-map [(control f12)] 'cscope-prev-file)
+;;	(define-key global-map [(control f8)]  'cscope-pop-mark)
+;;	(define-key global-map [(control f9)]  'cscope-next-symbol)
+;;	(define-key global-map [(control f10)] 'cscope-next-file)
+;;	(define-key global-map [(control f11)] 'cscope-prev-symbol)
+;;	(define-key global-map [(control f12)] 'cscope-prev-file)
 ;;      (define-key global-map [(meta f9)]  'cscope-display-buffer)
 ;;      (defin-ekey global-map [(meta f10)] 'cscope-display-buffer-toggle)
 ;;
@@ -442,9 +448,9 @@
 ;;
 ;;      Here is an example of `cscope-database-regexps':
 ;;
-;;              (setq cscope-database-regexps
+;;		(setq cscope-database-regexps
 ;;                    '(
-;;                      ( "^/users/jdoe/sources/proj1"
+;;			( "^/users/jdoe/sources/proj1"
 ;;                        ( t )
 ;;                        ( "/users/jdoe/sources/proj2")
 ;;                        ( "/users/jdoe/sources/proj3/mycscope.out")
@@ -452,10 +458,10 @@
 ;;                        t
 ;;                        ( "/some/master/directory" ("-d" "-I/usr/local/include") )
 ;;                        )
-;;                      ( "^/users/jdoe/sources/gnome/"
+;;			( "^/users/jdoe/sources/gnome/"
 ;;                        ( "/master/gnome/database" ("-d") )
 ;;                        )
-;;                      ))
+;;			))
 ;;
 ;;      If the current buffer's directory matches the regexp,
 ;;      "^/users/jdoe/sources/proj1", then the following search will be
@@ -1106,6 +1112,8 @@ buffer.")
   "When set the directory in which searches for the cscope database
 directory should begin.")
 
+(defvar cscope-hard-path-prefix nil
+  "When set, this is prepended to cscope index file paths")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -1279,7 +1287,6 @@ The text properties to be added:
       (recenter n)))
   )
 
-
 (defun cscope-show-entry-internal (file line-number
                                         &optional save-mark-p window arrow-p)
   "Display the buffer corresponding to FILE and LINE-NUMBER
@@ -1289,84 +1296,86 @@ not selected.  Save point on mark ring before goto
 LINE-NUMBER if optional argument SAVE-MARK-P is non-nil.
 Put `overlay-arrow-string' if arrow-p is non-nil.
 Returns the window displaying BUFFER."
-  (let (buffer old-pos old-point new-point forward-point backward-point
-               line-end line-length)
-    (if (and (stringp file)
-             (integerp line-number))
-        (progn
-          (unless (file-readable-p file)
-            (error "%s is not readable or exists" file))
-          (setq buffer (find-file-noselect file))
-          (if (windowp window)
-              (set-window-buffer window buffer)
-            (setq window (display-buffer buffer)))
-          (set-buffer buffer)
-          (if (> line-number 0)
-              (progn
-                (setq old-pos (point))
-                (goto-line line-number)
-                (setq old-point (point))
-                (if (and cscope-adjust cscope-adjust-range)
-                    (progn
-                      ;; Calculate the length of the line specified by cscope.
-                      (end-of-line)
-                      (setq line-end (point))
-                      (goto-char old-point)
-                      (setq line-length (- line-end old-point))
+  (let ((file (concat cscope-hard-path-prefix file)))
+    (let (buffer old-pos old-point new-point forward-point backward-point
+                 line-end line-length)
+      (if (and (stringp file)
+               (integerp line-number))
+          (progn
+            (unless (file-readable-p file)
+              (error "%s is not readable or exists" file))
+            (setq buffer (find-file-noselect file))
+            (if (windowp window)
+                (set-window-buffer window buffer)
+              (setq window (display-buffer buffer)))
+            (set-buffer buffer)
+            (if (> line-number 0)
+                (progn
+                  (setq old-pos (point))
+                  (goto-line line-number)
+                  (setq old-point (point))
+                  (if (and cscope-adjust cscope-adjust-range)
+                      (progn
+                        ;; Calculate the length of the line specified by cscope.
+                        (end-of-line)
+                        (setq line-end (point))
+                        (goto-char old-point)
+                        (setq line-length (- line-end old-point))
 
-                      ;; Search forward and backward for the pattern.
-                      (setq forward-point (search-forward
-                                           cscope-symbol
-                                           (+ old-point
-                                              cscope-adjust-range) t))
-                      (goto-char old-point)
-                      (setq backward-point (search-backward
-                                            cscope-symbol
-                                            (- old-point
-                                               cscope-adjust-range) t))
-                      (if forward-point
-                          (progn
-                            (if backward-point
-                                (setq new-point
-                                      ;; Use whichever of forward-point or
-                                      ;; backward-point is closest to old-point.
-                                      ;; Give forward-point a line-length advantage
-                                      ;; so that if the symbol is on the current
-                                      ;; line the current line is chosen.
-                                      (if (<= (- (- forward-point line-length)
-                                                 old-point)
-                                              (- old-point backward-point))
-                                          forward-point
-                                        backward-point))
-                              (setq new-point forward-point)))
-                        (if backward-point
-                            (setq new-point backward-point)
-                          (setq new-point old-point)))
-                      (goto-char new-point)
-                      (beginning-of-line)
-                      (setq new-point (point)))
-                  (setq new-point old-point))
-                (set-window-point window new-point)
-                (if (and cscope-allow-arrow-overlays arrow-p)
-                    (set-marker overlay-arrow-position (point))
-                  (set-marker overlay-arrow-position nil))
-                (or (not save-mark-p)
-                    (= old-pos (point))
-                    (push-mark old-pos))
-                ))
+                        ;; Search forward and backward for the pattern.
+                        (setq forward-point (search-forward
+                                             cscope-symbol
+                                             (+ old-point
+                                                cscope-adjust-range) t))
+                        (goto-char old-point)
+                        (setq backward-point (search-backward
+                                              cscope-symbol
+                                              (- old-point
+                                                 cscope-adjust-range) t))
+                        (if forward-point
+                            (progn
+                              (if backward-point
+                                  (setq new-point
+                                        ;; Use whichever of forward-point or
+                                        ;; backward-point is closest to old-point.
+                                        ;; Give forward-point a line-length advantage
+                                        ;; so that if the symbol is on the current
+                                        ;; line the current line is chosen.
+                                        (if (<= (- (- forward-point line-length)
+                                                   old-point)
+                                                (- old-point backward-point))
+                                            forward-point
+                                          backward-point))
+                                (setq new-point forward-point)))
+                          (if backward-point
+                              (setq new-point backward-point)
+                            (setq new-point old-point)))
+                        (goto-char new-point)
+                        (beginning-of-line)
+                        (setq new-point (point)))
+                    (setq new-point old-point))
+                  (set-window-point window new-point)
+                  (if overlay-arrow-position
+                      (if (and cscope-allow-arrow-overlays arrow-p)
+                          (set-marker overlay-arrow-position (point))
+                        (set-marker overlay-arrow-position nil)))
+                  (or (not save-mark-p)
+                      (= old-pos (point))
+                      (push-mark old-pos))
+                  ))
 
-          (if cscope-marker
-              (progn ;; The search was successful.  Save the marker so it
-                     ;; can be returned to by cscope-pop-mark.
-                (ring-insert cscope-marker-ring cscope-marker)
-                ;; Unset cscope-marker so that moving between matches
-                ;; (cscope-next-symbol, etc.) does not fill
-                ;; cscope-marker-ring.
-                (setq cscope-marker nil)))
-          (setq cscope-marker-window window)
-          )
-      (message "No entry found at point."))
-    )
+            (if cscope-marker
+                (progn ;; The search was successful.  Save the marker so it
+                  ;; can be returned to by cscope-pop-mark.
+                  (ring-insert cscope-marker-ring cscope-marker)
+                  ;; Unset cscope-marker so that moving between matches
+                  ;; (cscope-next-symbol, etc.) does not fill
+                  ;; cscope-marker-ring.
+                  (setq cscope-marker nil)))
+            (setq cscope-marker-window window)
+            )
+        (message "No entry found at point."))
+      ))
   window)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1396,7 +1405,7 @@ Push current point on mark ring and select the entry window."
     (if (windowp window)
         (progn
           (select-window window)
-          (sit-for 0)   ;; Redisplay hack to allow delete-other-windows
+          (sit-for 0)	;; Redisplay hack to allow delete-other-windows
                         ;; to continue displaying the correct location.
           (delete-other-windows window)
           ))
@@ -1684,7 +1693,7 @@ the current directory will be used."
 
       ;; Should we add any more places to look?
 
-      )         ;; end catch
+      )		;; end catch
     (if (not info)
         (setq info (list (list top-directory))))
     info
@@ -1736,8 +1745,8 @@ using the mouse."
               (while (and cscope-process-output
                           (string-match "\\([^\n]+\n\\)\\(\\(.\\|\n\\)*\\)"
                                         cscope-process-output))
-                (setq file                              nil
-                      glimpse-stripped-directory        nil
+                (setq file				nil
+                      glimpse-stripped-directory	nil
                       )
                 ;; Get a line
                 (setq line (substring cscope-process-output
@@ -1880,7 +1889,7 @@ using the mouse."
           (goto-char cscope-first-match-point))
       )
     (cond
-     ( (not done)               ;; we're not done -- do nothing for now
+     ( (not done)		;; we're not done -- do nothing for now
        (if update-window
            (if window
                (set-window-point window (point-max))
@@ -1988,7 +1997,7 @@ using the mouse."
                     cscope-last-file nil
                     )
               (setq cscope-process
-                    (apply 'call-process "cscope" outbuf
+                    (apply 'start-file-process "cscope" outbuf
                            cscope-program options))
               (set-process-filter cscope-process cscope-filter-func)
               (set-process-sentinel cscope-process cscope-sentinel-func)
@@ -1998,7 +2007,7 @@ using the mouse."
                   (setq modeline-process ": Searching ..."))
               (setq buffer-read-only t)
               )
-          (apply 'call-process cscope-program nil outbuf t options)
+          (apply 'process-file cscope-program nil outbuf t options)
           )
         t
         ))
@@ -2121,7 +2130,7 @@ SENTINEL-FUNC are optional process filter and sentinel, respectively."
       (if cscope-index-recursively
           (setq args (cons "-r" args)))
       (setq cscope-unix-index-process
-            (apply 'start-process "cscope-indexer"
+            (apply 'start-file-process "cscope-indexer"
                    cscope-unix-index-process-buffer
                    cscope-indexing-script args))
       (set-process-sentinel cscope-unix-index-process
@@ -2416,7 +2425,7 @@ file."
                   (cscope-prompt-for-symbol
                    "Find files #including this file: " t))
                 ))
-  (let ( (cscope-adjust t) )    ;; Use fuzzy matching.
+  (let ( (cscope-adjust t) )	;; Use fuzzy matching.
     (setq cscope-symbol symbol)
     (cscope-call (format "Finding files #including file: %s" symbol)
                  (list "-8" symbol) nil 'cscope-process-filter
